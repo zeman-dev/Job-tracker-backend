@@ -22,7 +22,9 @@ const app = express();
 // {LIBRARIES} //
 app.use(helmet());
 
-app.use(cors());
+app.use(cors({
+  origin: '*',
+}));
 
 app.use(logger());
 
