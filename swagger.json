@@ -1,0 +1,975 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Job Tracker API",
+    "version": "1.0.0",
+    "description": "REST API for tracking job applications. Users register and log in, which creates a server-side session and sets three HttpOnly cookies (`sessionId`, `accessToken`, `refreshToken`). All `/applications` endpoints require a valid session: send both the `sessionId` and `accessToken` cookies. Access tokens live for 15 minutes; use `POST /auth/refresh` with the `sessionId` and `refreshToken` cookies to rotate the session.\n\nValidation is enforced with Joi via `celebrate`. Invalid requests return `400` with a celebrate validation payload; unknown properties are rejected by the schemas."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local development server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Auth",
+      "description": "Registration, login, logout and session refresh"
+    },
+    {
+      "name": "Applications",
+      "description": "CRUD operations on the authenticated user's job applications"
+    }
+  ],
+  "paths": {
+    "/auth/register": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Register a new user",
+        "description": "Creates a user, hashes the password with bcrypt, opens a session and sets the `sessionId`, `accessToken` and `refreshToken` cookies. If `userName` is omitted or empty, the model falls back to the user's email.",
+        "operationId": "registerUser",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RegisterRequest" },
+              "example": {
+                "userName": "Jane Doe",
+                "email": "jane@example.com",
+                "password": "secret123"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "User created; session cookies set.",
+            "headers": {
+              "Set-Cookie": {
+                "description": "Sets `sessionId`, `accessToken` (15 min) and `refreshToken` (7 days) HttpOnly cookies.",
+                "schema": { "type": "string" }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/User" }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed, or the email is already registered (`User already exist`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    { "$ref": "#/components/schemas/ValidationError" },
+                    { "$ref": "#/components/schemas/Error" }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Log in",
+        "description": "Verifies the credentials, deletes any existing sessions for the user, creates a new session and sets the session cookies.",
+        "operationId": "loginUser",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/LoginRequest" },
+              "example": {
+                "email": "jane@example.com",
+                "password": "secret123"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authenticated; session cookies set.",
+            "headers": {
+              "Set-Cookie": {
+                "description": "Sets `sessionId`, `accessToken` (15 min) and `refreshToken` (7 days) HttpOnly cookies.",
+                "schema": { "type": "string" }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/LoginResponse" }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ValidationError" }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid email or password (`Invalid credentials`).",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Log out",
+        "description": "Deletes the session referenced by the `sessionId` cookie (if present) and clears all three session cookies. This endpoint does not require a valid session.",
+        "operationId": "logoutUser",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "cookie",
+            "required": false,
+            "description": "Session identifier to delete. Ignored if absent.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Session deleted and cookies cleared. No response body.",
+            "headers": {
+              "Set-Cookie": {
+                "description": "Clears `sessionId`, `accessToken` and `refreshToken`.",
+                "schema": { "type": "string" }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Refresh the session",
+        "description": "Validates the `sessionId`/`refreshToken` cookie pair, deletes the old session and issues a new one with fresh cookies. If the refresh token has expired, the session is deleted, cookies are cleared and `401 refresh token expired` is returned.",
+        "operationId": "refreshUserSession",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "cookie",
+            "required": true,
+            "description": "Current session identifier.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "refreshToken",
+            "in": "cookie",
+            "required": true,
+            "description": "Refresh token matching the session.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session rotated and new cookies set.",
+            "headers": {
+              "Set-Cookie": {
+                "description": "Sets the new `sessionId`, `accessToken` (15 min) and `refreshToken` (7 days) cookies.",
+                "schema": { "type": "string" }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Session refreshed"
+                    }
+                  },
+                  "required": ["message"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing session credentials, session not found, or refresh token expired.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/applications": {
+      "get": {
+        "tags": ["Applications"],
+        "summary": "List applications",
+        "description": "Returns all applications belonging to the authenticated user. Results can be filtered by exact `source` and `workFormat`, and by a case-insensitive `search` across `role` and `company`.",
+        "operationId": "getApplications",
+        "security": [
+          {
+            "sessionIdCookie": [],
+            "accessTokenCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Case-insensitive substring matched against `role` and `company`. Empty string is allowed.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": { "$ref": "#/components/schemas/Source" }
+          },
+          {
+            "name": "workFormat",
+            "in": "query",
+            "required": false,
+            "schema": { "$ref": "#/components/schemas/WorkFormat" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of the user's applications.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/Application" }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameters.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ValidationError" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing session credentials, invalid session, expired access token, or user not found.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Applications"],
+        "summary": "Create an application",
+        "description": "Creates an application owned by the authenticated user. `status` defaults to `applied` and `source` defaults to `other` at the model level when omitted.",
+        "operationId": "createApplication",
+        "security": [
+          {
+            "sessionIdCookie": [],
+            "accessTokenCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateApplicationRequest" },
+              "example": {
+                "company": "Acme AB",
+                "role": "Frontend Developer",
+                "workFormat": "remote",
+                "source": "linkedin",
+                "jobUrl": "https://example.com/jobs/123",
+                "city": "Stockholm",
+                "notes": "Referred by a friend",
+                "contact": {
+                  "name": "Anna Svensson",
+                  "role": "Recruiter",
+                  "email": "anna@acme.example"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Application created.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Application" }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ValidationError" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid session.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/applications/{applicationId}": {
+      "get": {
+        "tags": ["Applications"],
+        "summary": "Get an application by id",
+        "operationId": "getApplicationById",
+        "security": [
+          {
+            "sessionIdCookie": [],
+            "accessTokenCookie": []
+          }
+        ],
+        "parameters": [
+          { "$ref": "#/components/parameters/ApplicationId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "The application.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Application" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid id format.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ValidationError" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid session.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Application not found (`Application not found`).",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": ["Applications"],
+        "summary": "Update an application",
+        "description": "Updates only the provided fields (at least one is required). Mutation is run against the model validators.",
+        "operationId": "updateApplication",
+        "security": [
+          {
+            "sessionIdCookie": [],
+            "accessTokenCookie": []
+          }
+        ],
+        "parameters": [
+          { "$ref": "#/components/parameters/ApplicationId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateApplicationRequest" },
+              "example": {
+                "notes": "Interview scheduled for Friday",
+                "city": "Gothenburg",
+                "contact": {
+                  "name": "Anna Svensson",
+                  "role": "Recruiter",
+                  "email": "anna@acme.example"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated application.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Application" }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed (including an empty body).",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ValidationError" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid session.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Application not found (`Application not found`).",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Applications"],
+        "summary": "Delete an application",
+        "operationId": "deleteApplication",
+        "security": [
+          {
+            "sessionIdCookie": [],
+            "accessTokenCookie": []
+          }
+        ],
+        "parameters": [
+          { "$ref": "#/components/parameters/ApplicationId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "The deleted application document.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Application" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid id format.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ValidationError" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid session.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Application not found (`Application not found`).",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/applications/{applicationId}/status": {
+      "patch": {
+        "tags": ["Applications"],
+        "summary": "Update application status",
+        "description": "Updates the `status` field of an application owned by the authenticated user. Handled by the same controller as the general update endpoint.",
+        "operationId": "updateApplicationStatus",
+        "security": [
+          {
+            "sessionIdCookie": [],
+            "accessTokenCookie": []
+          }
+        ],
+        "parameters": [
+          { "$ref": "#/components/parameters/ApplicationId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateApplicationStatusRequest" },
+              "example": { "status": "interview" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated application.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Application" }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ValidationError" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid session.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Application not found (`Application not found`).",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionIdCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "sessionId",
+        "description": "Session identifier cookie (HttpOnly, Secure, SameSite=None). Set by register/login/refresh. Required together with the `accessToken` cookie."
+      },
+      "accessTokenCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "accessToken",
+        "description": "Access token cookie (HttpOnly, Secure, SameSite=None), valid for 15 minutes. Set by register/login/refresh. Required together with the `sessionId` cookie."
+      }
+    },
+    "parameters": {
+      "ApplicationId": {
+        "name": "applicationId",
+        "in": "path",
+        "required": true,
+        "description": "MongoDB ObjectId of the application (24 hexadecimal characters).",
+        "schema": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{24}$",
+          "example": "64b7f0f2a1b2c3d4e5f60718"
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "description": "Generic error payload produced by the HTTP error handler. In non-production, 500 responses return the stack trace in `message`.",
+        "properties": {
+          "message": { "type": "string" }
+        },
+        "required": ["message"]
+      },
+      "ValidationError": {
+        "type": "object",
+        "description": "Payload produced by `celebrate`'s errors middleware when a Joi schema rejects a request segment.",
+        "properties": {
+          "statusCode": { "type": "integer", "example": 400 },
+          "error": { "type": "string", "example": "Bad Request" },
+          "message": {
+            "type": "string",
+            "example": "\"company\" is required"
+          },
+          "validation": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": ["params", "query", "body", "headers", "cookies"]
+              },
+              "keys": {
+                "type": "array",
+                "items": { "type": "string" },
+                "example": ["company"]
+              }
+            },
+            "required": ["source", "keys"]
+          }
+        },
+        "required": ["statusCode", "error", "message", "validation"]
+      },
+      "Status": {
+        "type": "string",
+        "description": "Application lifecycle status.",
+        "enum": ["applied", "interview", "takehome", "offer", "rejected"]
+      },
+      "WorkFormat": {
+        "type": "string",
+        "enum": ["remote", "hybrid", "onsite"]
+      },
+      "Source": {
+        "type": "string",
+        "description": "Where the application was found.",
+        "enum": [
+          "linkedin",
+          "platsbanken",
+          "indeed",
+          "thehub",
+          "company_site",
+          "referral",
+          "djinni",
+          "other"
+        ]
+      },
+      "Contact": {
+        "type": "object",
+        "description": "Contact person for the application. Unknown properties are rejected.",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 15,
+            "description": "Trimmed."
+          },
+          "role": {
+            "type": "string",
+            "maxLength": 40,
+            "description": "May be an empty string."
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 40
+          }
+        },
+        "required": ["name", "email"]
+      },
+      "Salary": {
+        "type": "object",
+        "description": "Optional salary range set at the model level (not part of the validated request body).",
+        "properties": {
+          "from": { "type": "number" },
+          "to": { "type": "number" }
+        }
+      },
+      "StatusHistoryEntry": {
+        "type": "object",
+        "properties": {
+          "status": { "$ref": "#/components/schemas/Status" },
+          "at": { "type": "string", "format": "date-time" },
+          "note": { "type": "string" }
+        },
+        "required": ["status", "at"]
+      },
+      "User": {
+        "type": "object",
+        "description": "User document. The password is removed by the model's `toJSON`.",
+        "properties": {
+          "_id": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{24}$",
+            "example": "64b7f0f2a1b2c3d4e5f60718"
+          },
+          "userName": {
+            "type": "string",
+            "description": "Defaults to the email when omitted."
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "__v": { "type": "integer" }
+        },
+        "required": ["_id", "email", "createdAt", "updatedAt"]
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "user": { "$ref": "#/components/schemas/User" }
+        },
+        "required": ["user"]
+      },
+      "Application": {
+        "type": "object",
+        "description": "Job application document.",
+        "properties": {
+          "_id": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{24}$",
+            "example": "64b7f0f2a1b2c3d4e5f60719"
+          },
+          "userId": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{24}$",
+            "description": "Owner of the application."
+          },
+          "status": {
+            "allOf": [{ "$ref": "#/components/schemas/Status" }],
+            "default": "applied"
+          },
+          "company": { "type": "string" },
+          "role": { "type": "string" },
+          "notes": { "type": "string" },
+          "order": { "type": "number", "default": 0 },
+          "source": {
+            "allOf": [{ "$ref": "#/components/schemas/Source" }],
+            "default": "other"
+          },
+          "jobUrl": { "type": "string" },
+          "workFormat": { "$ref": "#/components/schemas/WorkFormat" },
+          "city": { "type": "string" },
+          "appliedAt": { "type": "string", "format": "date-time" },
+          "salary": { "$ref": "#/components/schemas/Salary" },
+          "contact": { "$ref": "#/components/schemas/Contact" },
+          "statusHistory": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/StatusHistoryEntry" }
+          },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "__v": { "type": "integer" }
+        },
+        "required": [
+          "_id",
+          "userId",
+          "status",
+          "company",
+          "role",
+          "order",
+          "source",
+          "appliedAt",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "RegisterRequest": {
+        "type": "object",
+        "description": "Mirrors `registerSchema` from `authValidation.js`. Unknown properties are rejected.",
+        "additionalProperties": false,
+        "properties": {
+          "userName": {
+            "type": "string",
+            "maxLength": 40,
+            "description": "Optional; may be an empty string and then defaults to the email."
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 100
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "minLength": 6
+          }
+        },
+        "required": ["email", "password"]
+      },
+      "LoginRequest": {
+        "type": "object",
+        "description": "Mirrors `loginSchema` from `authValidation.js`. Unknown properties are rejected.",
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 100
+          },
+          "password": { "type": "string", "format": "password" }
+        },
+        "required": ["email", "password"]
+      },
+      "CreateApplicationRequest": {
+        "type": "object",
+        "description": "Mirrors `createApplicationSchema` from `applicationValidation.js`. Unknown properties are rejected.",
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "allOf": [{ "$ref": "#/components/schemas/Status" }],
+            "description": "Defaults to `applied` at the model level when omitted."
+          },
+          "company": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 30,
+            "description": "Trimmed."
+          },
+          "role": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 40,
+            "description": "Trimmed."
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 250,
+            "description": "May be an empty string."
+          },
+          "source": {
+            "allOf": [{ "$ref": "#/components/schemas/Source" }],
+            "description": "Defaults to `other` at the model level when omitted."
+          },
+          "jobUrl": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 70,
+            "pattern": "^https?://",
+            "description": "Trimmed. Must be an absolute http or https URL; empty string allowed."
+          },
+          "workFormat": { "$ref": "#/components/schemas/WorkFormat" },
+          "city": {
+            "type": "string",
+            "maxLength": 20,
+            "description": "May be an empty string."
+          },
+          "contact": { "$ref": "#/components/schemas/Contact" }
+        },
+        "required": ["company", "role", "workFormat", "contact"]
+      },
+      "UpdateApplicationRequest": {
+        "type": "object",
+        "description": "Mirrors `updateApplicationSchema` from `applicationValidation.js`. At least one property is required (`.min(1)`); unknown properties are rejected.",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "notes": {
+            "type": "string",
+            "maxLength": 250,
+            "description": "May be an empty string."
+          },
+          "jobUrl": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 70,
+            "pattern": "^https?://",
+            "description": "Trimmed. Must be an absolute http or https URL; empty string allowed."
+          },
+          "workFormat": { "$ref": "#/components/schemas/WorkFormat" },
+          "city": {
+            "type": "string",
+            "maxLength": 20,
+            "description": "May be an empty string."
+          },
+          "contact": { "$ref": "#/components/schemas/Contact" }
+        }
+      },
+      "UpdateApplicationStatusRequest": {
+        "type": "object",
+        "description": "Mirrors `updateApplicationStatusSchema` from `applicationValidation.js`. Unknown properties are rejected.",
+        "additionalProperties": false,
+        "properties": {
+          "status": { "$ref": "#/components/schemas/Status" }
+        },
+        "required": ["status"]
+      }
+    }
+  }
+}
