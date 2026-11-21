@@ -23,7 +23,7 @@ const app = express();
 app.use(helmet());
 
 app.use(cors({
-  origin: '*'
+  origin: '*',
 }));
 
 app.use(logger());
