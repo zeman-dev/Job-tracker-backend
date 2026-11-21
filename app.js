@@ -23,7 +23,8 @@ const app = express();
 app.use(helmet());
 
 app.use(cors({
-  origin: '*',
+  origin: [process.env.FRONTEND_URL, 'http://localhost:3000'].filter(Boolean),
+  credentials: true,
 }));
 
 app.use(logger());
