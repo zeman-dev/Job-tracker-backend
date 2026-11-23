@@ -69,6 +69,12 @@ const applicationSchema = new Schema(
       type: Date,
       default: Date.now,
     },
+    interviewAt: {
+      type: Date,
+    },
+    takehomeDueAt: {
+      type: Date,
+    },
     salary: {
       from: {
         type: Number,

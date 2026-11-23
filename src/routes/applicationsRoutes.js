@@ -4,7 +4,8 @@ import {
     deleteApplication, 
     getApplicationById, 
     getApplications, 
-    updateApplication } from "../controllers/applicationsController.js";
+    updateApplication, 
+    updateApplicationStatus} from "../controllers/applicationsController.js";
 
 import {Router} from "express";
 import { 
@@ -35,7 +36,6 @@ router.delete("/applications/:applicationId", celebrate(applicationIdParamsSchem
 
 // {/APPLICATION/:ID/STATUS} //
 
-router.patch("/applications/:applicationId/status", celebrate(updateApplicationStatusSchema),updateApplication);
-
+router.patch("/applications/:applicationId/status", celebrate(updateApplicationStatusSchema), updateApplicationStatus);
 
 export default router;

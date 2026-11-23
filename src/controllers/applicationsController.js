@@ -1,29 +1,28 @@
 import createHttpError from 'http-errors';
 import { Application } from '../models/application.js';
 
-
 // {GET ALL} //
 
 export const getApplications = async (req, res) => {
-  const {search, source, workFormat} = req.query;
-  const applicationQuery = Application.find({userId: req.user._id});
+  const { search, source, workFormat } = req.query;
+  const applicationQuery = Application.find({ userId: req.user._id });
 
-  if(source){
-    applicationQuery.where("source").equals(source);
+  if (source) {
+    applicationQuery.where('source').equals(source);
   }
-  if(workFormat){
-    applicationQuery.where("workFormat").equals(workFormat);
+  if (workFormat) {
+    applicationQuery.where('workFormat').equals(workFormat);
   }
-  if(search){
+  if (search) {
     applicationQuery.where({
       $or: [
-        {role: {$regex: search, $options: "i"}},
-        {company: {$regex: search, $options: "i"},}
+        { role: { $regex: search, $options: 'i' } },
+        { company: { $regex: search, $options: 'i' } },
       ],
     });
   }
 
-const allApplications = await applicationQuery
+  const allApplications = await applicationQuery;
 
   res.status(200).json(allApplications);
 };
@@ -33,9 +32,9 @@ const allApplications = await applicationQuery
 export const getApplicationById = async (req, res) => {
   const { applicationId } = req.params;
   const application = await Application.findOne({
-     _id: applicationId, 
-     userId: req.user._id 
-    });
+    _id: applicationId,
+    userId: req.user._id,
+  });
   if (!application) {
     throw createHttpError(404, 'Application not found');
   }
@@ -46,9 +45,13 @@ export const getApplicationById = async (req, res) => {
 // {CREATE} //
 
 export const createApplication = async (req, res) => {
+  const status = req.body.status ?? 'applied';
+
   const application = await Application.create({
-    ...req.body, 
-    userId: req.user._id
+    ...req.body,
+    userId: req.user._id,
+    status,
+    statusHistory: [{ status, at: new Date() }],
   });
 
   res.status(201).json(application);
@@ -58,14 +61,13 @@ export const createApplication = async (req, res) => {
 
 export const updateApplication = async (req, res) => {
   const { applicationId } = req.params;
-  const application = await Application.findOneAndUpdate({
-     _id: applicationId, 
-     userId: req.user._id 
+  const application = await Application.findOneAndUpdate(
+    {
+      _id: applicationId,
+      userId: req.user._id,
     },
     req.body,
-    { returnDocument: 'after',
-      runValidators: true,
-     },
+    { returnDocument: 'after', runValidators: true },
   );
   if (!application) {
     throw createHttpError(404, 'Application not found');
@@ -73,15 +75,36 @@ export const updateApplication = async (req, res) => {
   res.status(200).json(application);
 };
 
+export const updateApplicationStatus = async (req, res) => {
+  const { applicationId } = req.params;
+  const { status } = req.body;
+
+  const application = await Application.findOneAndUpdate(
+    { _id: applicationId, userId: req.user._id },
+    {
+      $set: { status },
+      $push: {
+        statusHistory: { status, at: new Date() },
+      },
+    },
+    { returnDocument: 'after', runValidators: true },
+  );
+
+  if (!application) {
+    throw createHttpError(404, 'Application not found');
+  }
+
+  res.status(200).json(application);
+};
+
 // {DELETE} //
 
 export const deleteApplication = async (req, res) => {
   const { applicationId } = req.params;
-  const application = await Application.findOneAndDelete({ 
-    _id: applicationId, 
-    userId: req.user._id 
-  },
-  );
+  const application = await Application.findOneAndDelete({
+    _id: applicationId,
+    userId: req.user._id,
+  });
   if (!application) {
     throw createHttpError(404, 'Application not found');
   }

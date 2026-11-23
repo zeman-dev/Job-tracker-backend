@@ -827,6 +827,18 @@
           "workFormat": { "$ref": "#/components/schemas/WorkFormat" },
           "city": { "type": "string" },
           "appliedAt": { "type": "string", "format": "date-time" },
+          "interviewAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Scheduled interview date."
+          },
+          "takehomeDueAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Take-home assignment due date."
+          },
           "salary": { "$ref": "#/components/schemas/Salary" },
           "contact": { "$ref": "#/components/schemas/Contact" },
           "statusHistory": {
@@ -958,7 +970,19 @@
             "maxLength": 20,
             "description": "May be an empty string."
           },
-          "contact": { "$ref": "#/components/schemas/Contact" }
+          "contact": { "$ref": "#/components/schemas/Contact" },
+          "interviewAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Scheduled interview date. Set to null to clear it."
+          },
+          "takehomeDueAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Take-home assignment due date. Set to null to clear it."
+          }
         }
       },
       "UpdateApplicationStatusRequest": {

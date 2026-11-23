@@ -41,7 +41,8 @@ export const createApplicationSchema = {
   [Segments.BODY]: Joi.object({
     status: Joi.string()
       .valid(...STATUSES)
-      .trim(),
+      .trim()
+      .required(),
     company: Joi.string().trim().required().max(30).min(2),
     role: Joi.string().trim().required().min(5).max(40),
     notes: Joi.string().max(250).allow(''),
@@ -72,6 +73,8 @@ export const updateApplicationSchema = {
     workFormat: Joi.string().valid(...WORK_FORMATS),
     city: Joi.string().allow('').max(20),
     contact: contactSchema,
+    interviewAt: Joi.date().iso().allow(null),
+    takehomeDueAt: Joi.date().iso().allow(null),
   }).min(1),
   ...applicationIdParamsSchema,
 };
@@ -79,13 +82,11 @@ export const updateApplicationSchema = {
 // { UPDATE STATUS } //
 
 export const updateApplicationStatusSchema = {
-  [Segments.BODY]: Joi.object(
-    {
-      status: Joi.string()
-        .valid(...STATUSES)
-        .trim()
-        .required(),
-    }
-  ),
+  [Segments.BODY]: Joi.object({
+    status: Joi.string()
+      .valid(...STATUSES)
+      .trim()
+      .required(),
+  }),
   ...applicationIdParamsSchema,
 };
