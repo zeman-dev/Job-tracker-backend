@@ -751,12 +751,8 @@
         "required": ["name", "email"]
       },
       "Salary": {
-        "type": "object",
-        "description": "Optional salary range set at the model level (not part of the validated request body).",
-        "properties": {
-          "from": { "type": "number" },
-          "to": { "type": "number" }
-        }
+        "type": "string",
+        "description": "Salary as a free-form string."
       },
       "StatusHistoryEntry": {
         "type": "object",
@@ -942,9 +938,16 @@
             "maxLength": 20,
             "description": "May be an empty string."
           },
-          "contact": { "$ref": "#/components/schemas/Contact" }
+          "contact": { "$ref": "#/components/schemas/Contact" },
+          "salary": { "$ref": "#/components/schemas/Salary" },
+          "appliedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Application date. Defaults to the current date when omitted."
+          }
         },
-        "required": ["company", "role", "workFormat", "contact"]
+        "required": ["company", "role", "salary"]
       },
       "UpdateApplicationRequest": {
         "type": "object",

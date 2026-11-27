@@ -76,12 +76,9 @@ const applicationSchema = new Schema(
       type: Date,
     },
     salary: {
-      from: {
-        type: Number,
-      },
-      to: {
-        type: Number,
-      },
+      type: String,
+      trim: true,
+      required: true,
     },
     contact: {
       name: {

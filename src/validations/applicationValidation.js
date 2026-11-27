@@ -52,11 +52,11 @@ export const createApplicationSchema = {
       .trim()
       .allow('')
       .uri({ scheme: ['http', 'https'] }),
-    workFormat: Joi.string()
-      .valid(...WORK_FORMATS)
-      .required(),
+    workFormat: Joi.string().valid(...WORK_FORMATS),
     city: Joi.string().allow('').max(20),
-    contact: contactSchema.required(),
+    contact: contactSchema,
+    salary: Joi.string().trim().required(),
+    appliedAt: Joi.date().iso().allow(null, ''),
   }),
 };
 
